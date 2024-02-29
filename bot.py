@@ -1,233 +1,108 @@
-import sys
 import telebot
 import time
 from tokenbot import token
-from gsheets import senddata
-from datetime import datetime
+from gsheets import add_new_whish, get_whishlist
 from requests.exceptions import RequestException
 
 # Задаем токен для телебота и игнорируем висячие сообщения
 bot = telebot.TeleBot(token, skip_pending=True)
 
-# Листы с отделами и критичностью задач
-departments = ["Администрация", "Администрация эл. журнала", "IT отдел", "Завхоз"]
-criticals = ["Жизненно-необходимо", "Средняя важность", "В свободное время", "Вернуться назад"]
-# Параметры, которые передаются дальше
-datalist = ['От кого', 'в какой отдел', 'Критичность', 'Кабинет', 'Проблема']
-# Режим работы
-workdays = {'Mon', 'Tue', 'Wed', 'Thu', 'Fri'}
-workhours = ['8', '20']
+# Кнопочки для меню
+btns = ["Добавить хотелку", "Посмотреть свои хотелки", "Посмотреть чужие хотелки", "Вернуться назад"]
 
 # ID чатов для пересылки сообщений о новых обращениях
 chatids = [
-    ["Администрация", 337998259],
-    ["Администрация эл. журнала", 362796634],
-    ["IT отдел", 283476064],
-    ["Завхоз", 5162642969],
+    ["Алексей", "@lesssd", 362796634],
+    ["Полина", "@polinka21471", 719454990],
 ]
-
-
-# Проверка рабочего времени бота
-def check_worktime():
-    weekday = datetime.now().strftime("%a")
-    dayhour = datetime.now().strftime("%H")
-    if weekday in workdays and int(dayhour) >= int(workhours[0]) and int(dayhour) < int(workhours[1]):
-        return True
-    else:
-        return False
 
 
 @bot.message_handler(content_types=['text'])
 def start_message(message):
-    # print(message.chat.id) Перехват id чата для отправки уведомлений начальнику отдела
-    if check_worktime():
-        if (str(message.text) != "/start") and (message.contact == None):
-            bot.send_message(
-                message.chat.id,
-                "Вероятнее всего возникла проблема, попробуйте начать сначала",
-                reply_markup=startmarkup,
-            )
-        else:
-            user_nik = str(message.from_user.username)
-            if user_nik == 'None':
-                if message.contact is None:
-                    # print("Пишет аккаунт без username")
-                    bot.send_message(
-                        message.chat.id,
-                        'Оставьте Ваш номер чтобы мы смогли связаться с Вами. ',
-                        reply_markup=phoneboard,
-                    )
-                    bot.register_next_step_handler(message, start_message)
-                else:
-                    user_nik = "+" + str(message.contact.phone_number)
-                    # Приветствие собеседника!
-                    bot.send_message(message.chat.id, f"Здравствуйте, {message.chat.first_name}!")
-                    bot.send_message(message.chat.id, 'Выберите к кому хотите обратиться', reply_markup=depmarkup)
-                    bot.register_next_step_handler(message, critical_switch, user_nik)
+    print(message.chat.id)
+    user_nik = "@" + str(message.from_user.username)
+    # Приветствие собеседника!
+    bot.send_message(message.chat.id, f"Привет, {message.chat.first_name}!")
+    bot.send_message(message.chat.id, 'Выбери действие', reply_markup=btnmarkup)
+    bot.register_next_step_handler(message, second_message, user_nik)
+
+
+def second_message(message, user_nik):
+    activity = str(message.text)
+    if(activity == "None"):
+        bot.send_message(message.chat.id, 'Мы распознаём только текстовые сообщения', reply_markup=btnmarkup)
+        bot.register_next_step_handler(message, second_message, user_nik)
+    elif(activity in btns):
+        if(activity == "Добавить хотелку"):
+            bot.send_message(message.chat.id, 'Напиши, что хочешь', reply_markup=backmarkup)
+            bot.register_next_step_handler(message, add_new, user_nik)
+        elif(activity == "Посмотреть свои хотелки"):
+            # Чтение гугл таблицы, поиск строк, где определённое поле = никнейму, вывод в сообщение
+            whishs = get_whishlist(user_nik, 1)
+            if(len(whishs) != 0):
+                bot.send_message(message.chat.id, 'Список:')
+                for i in whishs:
+                    bot.send_message(message.chat.id, i)
             else:
-                # Приветствие собеседника!
-                bot.send_message(message.chat.id, f"Здравствуйте, {message.chat.first_name}!")
-                bot.send_message(message.chat.id, 'Выберите к кому хотите обратиться', reply_markup=depmarkup)
-                bot.register_next_step_handler(message, critical_switch, user_nik)
-    else:
-        bot.send_message(
-            message.chat.id,
-            "Заявки принимаются только в рабочее время!\n(Пн-Пт с 8:00 до 20:00)",
-            reply_markup=startmarkup,
-        )
-
-
-def critical_switch(message, user_nik):
-    if check_worktime():
-        dep = str(message.text)
-        # Проверка на дурака
-        if dep in departments:
-            bot.send_message(message.chat.id, 'Укажите приоритетность вашего обращения', reply_markup=critmarkup)
-            bot.register_next_step_handler(message, cabinet_input, user_nik, dep)
-        else:
-            bot.send_message(message.chat.id, 'Выберите из списка!', reply_markup=depmarkup)
-            bot.register_next_step_handler(message, critical_switch, user_nik)
-    else:
-        bot.send_message(
-            message.chat.id,
-            "Заявки принимаются только в рабочее время!\n(Пн-Пт с 8:00 до 20:00)",
-            reply_markup=startmarkup,
-        )
-        bot.register_next_step_handler(message, start_message)
-
-
-def cabinet_input(message, user_nik, dep):
-    if check_worktime():
-        crit = str(message.text)
-        # Проверка на дурака
-        if crit in criticals:
-            if crit == "Вернуться назад":
-                bot.send_message(message.chat.id, 'Выберите к кому хотите обратиться', reply_markup=depmarkup)
-                bot.register_next_step_handler(message, critical_switch, user_nik)
+                bot.send_message(message.chat.id, 'Список пуст :(')
+            bot.send_message(message.chat.id, 'Что будем делать дальше?', reply_markup=btnmarkup)
+            bot.register_next_step_handler(message, second_message, user_nik)
+        elif(activity == "Посмотреть чужие хотелки"):
+            # Чтение гугл таблицы, поиск строк, где определённое поле = никнейму, вывод в сообщение
+            whishs = get_whishlist(user_nik, 2)
+            if(len(whishs) != 0):
+                bot.send_message(message.chat.id, 'Список:')
+                for i in whishs:
+                    bot.send_message(message.chat.id, i)
             else:
-                bot.send_message(message.chat.id, 'Укажите кабинет', reply_markup=backmarkup)
-                bot.register_next_step_handler(message, problem, user_nik, dep, crit)
+                bot.send_message(message.chat.id, 'Список пуст :(')
+            bot.send_message(message.chat.id, 'Что будем делать дальше?', reply_markup=btnmarkup)
+            bot.register_next_step_handler(message, second_message, user_nik)
+        elif(activity == "Вернуться назад"):
+            bot.send_message(message.chat.id, f"Не забывай про нас, {message.chat.first_name}!\nПиши, когда вздумается...", reply_markup=btnmarkup)
+            bot.register_next_step_handler(message, start_message)
         else:
-            bot.send_message(message.chat.id, 'Выберите из списка!', reply_markup=critmarkup)
-            bot.register_next_step_handler(message, cabinet_input, user_nik, dep)
-    else:
-        bot.send_message(
-            message.chat.id,
-            "Заявки принимаются только в рабочее время!\n(Пн-Пт с 8:00 до 20:00)",
-            reply_markup=startmarkup,
-        )
-        bot.register_next_step_handler(message, start_message)
+            bot.send_message(message.chat.id, 'Выбери что-то из списка!', reply_markup=btnmarkup)
+            bot.register_next_step_handler(message, second_message, user_nik)
 
 
-def problem(message, user_nik, dep, crit):
-    if check_worktime():
-        cab = str(message.text)
-        # Проверка на дурака
-        if cab[0] != '/':
-            # Проверка на наличие медиа-контента
-            if cab == "None":
-                bot.send_message(
-                    message.chat.id,
-                    'Мы пока не научили бота обрабатывать заявки с медиа-контентом =(\nПопробуйте указать кабинет текстом...',
-                )
-                bot.register_next_step_handler(message, problem, user_nik, dep, crit)
-            elif cab == "Вернуться назад":
-                bot.send_message(message.chat.id, 'Укажите приоритетность вашего обращения', reply_markup=critmarkup)
-                bot.register_next_step_handler(message, cabinet_input, user_nik, dep)
+def add_new(message, user_nik):
+    whish = str(message.text)
+    # Проверка на медиа-контент или комманду
+    if(whish != "None" and whish[0] != '/'):
+        if(whish == "Вернуться назад"):
+            # Возврат к основному меню
+            bot.send_message(message.chat.id, 'Выбери, что хочешь сделать!', reply_markup=btnmarkup)
+            bot.register_next_step_handler(message, second_message, user_nik)
+        else:
+            # Запись новой хотелки
+            bot.send_message(message.chat.id, 'Мы записали твое желание, пиши, когда придумаешь что-то ещё!', reply_markup=startmarkup)
+            bot.register_next_step_handler(message, start_message)
+            # Функция для работы с таблицами
+            add_new_whish(user_nik, whish)
+            # Оповещение о новой хотелке
+            if(user_nik == chatids[0][1]):
+                bot.send_message(chatids[1][2], f'{chatids[0][1]} что-то придумал!')
             else:
-                bot.send_message(message.chat.id, 'Опишите Вашу проблему')
-                bot.register_next_step_handler(message, problem_message, user_nik, dep, crit, cab)
-        else:
-            bot.send_message(message.chat.id, 'Недопустимая команда, попробуйте указать кабинет без "/"')
-            bot.register_next_step_handler(message, problem, user_nik, dep, crit)
+                bot.send_message(chatids[0][2], f'{chatids[1][1]} что-то придумал!')
     else:
-        bot.send_message(
-            message.chat.id,
-            "Заявки принимаются только в рабочее время!\n(Пн-Пт с 8:00 до 20:00)",
-            reply_markup=startmarkup,
-        )
-        bot.register_next_step_handler(message, start_message)
-
-
-def problem_message(message, user_nik, dep, crit, cab):
-    if check_worktime():
-        prob = str(message.text)
-        # Проверка на дурака
-        if prob[0] != '/':
-            # Проверка на наличие медиа-контента
-            if prob == "None":
-                bot.send_message(
-                    message.chat.id,
-                    'Мы пока не научили бота обрабатывать заявки с медиа-контентом =(\nПопробуйте описать проблему текстом...',
-                    reply_markup=backmarkup,
-                )
-                bot.register_next_step_handler(message, problem_message, user_nik, dep, crit, cab)
-            elif prob == "Вернуться назад":
-                bot.send_message(message.chat.id, 'Укажите кабинет', reply_markup=backmarkup)
-                bot.register_next_step_handler(message, problem, user_nik, dep, crit)
-            else:
-                bot.send_message(
-                    message.chat.id,
-                    'Спасибо за обращение, информация передана! Чтобы зарегистрировать новое обращение - нажмите "/start"',
-                    reply_markup=startmarkup,
-                )
-                # Вызываем метод передачи данных в Гугл таблицы
-                senddata(user_nik, dep, crit, cab, prob)
-
-                # Поиск среди чатов и отправка уведомления начальнику отдела
-                for i in range(0, len(chatids)):
-                    if dep == chatids[i][0]:
-                        if user_nik[0] == '+':
-                            bot.send_message(
-                                chatids[i][1],
-                                f"Вам поступило новое обращение от {user_nik}\n{prob} в {cab}!",
-                                reply_markup=startmarkup,
-                            )
-                        else:
-                            bot.send_message(
-                                chatids[i][1],
-                                f"Вам поступило новое обращение от @{user_nik}\n{prob} в {cab}!",
-                                reply_markup=startmarkup,
-                            )
-        else:
-            bot.send_message(message.chat.id, 'Недопустимая команда, попробуйте начать описание не с "/"')
-            bot.register_next_step_handler(message, problem_message, user_nik, dep, crit, cab)
-    else:
-        bot.send_message(
-            message.chat.id,
-            "Заявки принимаются только в рабочее время!\n(Пн-Пт с 8:00 до 20:00)",
-            reply_markup=startmarkup,
-        )
-        bot.register_next_step_handler(message, start_message)
-
+        bot.send_message(message.chat.id, 'Мы распознаём только текстовые сообщения', reply_markup=backmarkup)
+        bot.register_next_step_handler(message, add_new, user_nik)
 
 if __name__ == '__main__':
-    # Проверка на наличие сетов
-    if not departments or not criticals:
-        sys.exit("Задай сеты кнопок с отделами и важностью!")
-
     # Создаем клаву для "/start"
     startmarkup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     startbtn = telebot.types.KeyboardButton("/start")
     startmarkup.add(startbtn)
-    # Создаем клавиатуру для выбора отдела
-    depmarkup = telebot.telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    for department in departments:
-        itemtmp = telebot.telebot.types.KeyboardButton(department)
-        depmarkup.add(itemtmp)
-    # Создаем клавиатуру для выбора критичности
-    critmarkup = telebot.telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    for critical in criticals:
-        itemtmp = telebot.telebot.types.KeyboardButton(critical)
-        critmarkup.add(itemtmp)
+    # Создаем клавиатуру для действий
+    btnmarkup = telebot.telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for btn in btns:
+        itemtmp = telebot.telebot.types.KeyboardButton(btn)
+        btnmarkup.add(itemtmp)
     # Создаем ккнопку назад
     backmarkup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     backbtn = telebot.types.KeyboardButton("Вернуться назад")
     backmarkup.add(backbtn)
-    # Кнопка отправки номера
-    phoneboard = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    ph_button = telebot.types.KeyboardButton(text="Поделиться номером", request_contact=True)
-    phoneboard.add(ph_button)
 
     # Запуск бота
     while True:
