@@ -19,7 +19,7 @@ chatids = [
 
 @bot.message_handler(content_types=['text'])
 def start_message(message):
-    print(message.chat.id)
+    # print(message.chat.id)
     user_nik = "@" + str(message.from_user.username)
     # Приветствие собеседника!
     bot.send_message(message.chat.id, f"Привет, {message.chat.first_name}!")
@@ -41,8 +41,10 @@ def second_message(message, user_nik):
             whishs = get_whishlist(user_nik, 1)
             if(len(whishs) != 0):
                 bot.send_message(message.chat.id, 'Список:')
+                whishlist = ''
                 for i in whishs:
-                    bot.send_message(message.chat.id, i)
+                    whishlist = f"{whishlist}\n{i}"
+                bot.send_message(message.chat.id, whishlist)
             else:
                 bot.send_message(message.chat.id, 'Список пуст :(')
             bot.send_message(message.chat.id, 'Что будем делать дальше?', reply_markup=btnmarkup)
@@ -52,8 +54,10 @@ def second_message(message, user_nik):
             whishs = get_whishlist(user_nik, 2)
             if(len(whishs) != 0):
                 bot.send_message(message.chat.id, 'Список:')
+                whishlist = ''
                 for i in whishs:
-                    bot.send_message(message.chat.id, i)
+                    whishlist = f"{whishlist}\n{i}"
+                bot.send_message(message.chat.id, whishlist)
             else:
                 bot.send_message(message.chat.id, 'Список пуст :(')
             bot.send_message(message.chat.id, 'Что будем делать дальше?', reply_markup=btnmarkup)
@@ -105,11 +109,4 @@ if __name__ == '__main__':
     backmarkup.add(backbtn)
 
     # Запуск бота
-    while True:
-        try:
-            bot.infinity_polling(timeout=90, long_polling_timeout=5)
-        except RequestException as err:
-            print(err)
-            print('Разрыв коннекта до телеграмма...')
-            time.sleep(15)
-            print('Переподключение...')
+    bot.infinity_polling(none_stop=True, timeout=90, long_polling_timeout=5)
